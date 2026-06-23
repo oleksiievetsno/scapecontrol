@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+# microscopy data — keep code, not raw images
+*.tiff
+*.tif
+*.nd2
+*.zarr/
+acquisitions/
