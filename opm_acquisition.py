@@ -1,8 +1,8 @@
 """
 OPM Automated Acquisition Pipeline — SCAPE/ASI LightSheetManager
 =================================================================
-Microscope: 40x SCAPE with ASI Tiger, dual Kinetix22 cameras
-Config:     mm2p0_40xSCAPE_v22TEST_withoutPCO_newLSM.cfg
+Microscope: 40x SCAPE with ASI Tiger, dual Kinetix22 cameras + PCO widefield
+Config:     mm2p0_40xSCAPE_v23TEST_withoutPCO_newLSM.cfg
 
 Workflow:
   1. Switch to widefield (LED) mode and acquire a tiled brightfield overview
@@ -40,25 +40,29 @@ PLOGIC            = "PLogic:E:36"         # laser shutter / channel selector
 LED_WHITE         = "LED:L:37:4"          # white LED for brightfield/widefield
 CAMERA_1          = "Kinetix22-1"         # primary OPM camera (ImagingCamera2 in LSM)
 CAMERA_2          = "Kinetix22-2"         # secondary OPM camera (ImagingCamera1 in LSM)
+CAMERA_WIDEFIELD  = "Widefield"           # PCO camera for brightfield/widefield overview
 
 # ---------------------------------------------------------------------------
 # Acquisition configuration — edit before running
 # ---------------------------------------------------------------------------
-OUTPUT_DIR = Path("/Volumes/aif/Nazar/pycromanager/acquisitions")
+OUTPUT_DIR = Path(r"C:\Users\aifadmin\Desktop\TEST")
 
 # ---- Brightfield overview --------------------------------------------------
-BF_EXPOSURE_MS   = 50.0
-BF_LED_INTENSITY = 50   # % (0–100)
+BF_EXPOSURE_MS   = 20.0
+BF_LED_INTENSITY = 20   # % (0–100)
 
-# Tile grid in µm — set step to ~90% of your widefield FOV
-# Kinetix22-1 pixel size = 0.1955 µm, so at 2×2 binning: 0.391 µm/px
-# Full chip 3200×3200 px → FOV ≈ 1250 µm; use 1100 µm step for 10% overlap
+# Widefield (PCO) camera — known pixel size
+BF_PIXEL_SIZE_UM = 0.36   # µm/px
+BF_CAMERA_PX     = 1024   # pixels (square chip)
+
+# Tile grid in µm — centered on current stage position at acquisition time
+# Widefield (PCO) camera: 1024×1024 px at 0.36 µm/px → FOV ≈ 369 µm; 330 µm step = ~10% overlap
 OVERVIEW_GRID = dict(
-    x_start = -2000.0,   # µm  — adjust to your sample extent
-    x_end   =  2000.0,
-    y_start = -2000.0,
-    y_end   =  2000.0,
-    step_um =  1100.0,
+    x_start = -660.0,   # µm relative to center (2 tiles each side)
+    x_end   =  660.0,
+    y_start = -660.0,
+    y_end   =  660.0,
+    step_um =  330.0,
 )
 
 # Emission filter for brightfield overview (usually empty position)
@@ -79,38 +83,46 @@ MANUAL_POSITION_REVIEW = True
 # ---------------------------------------------------------------------------
 
 def switch_to_widefield(core: Core) -> None:
-    """Configure hardware for LED widefield / brightfield imaging."""
+    """Configure hardware for LED widefield / brightfield imaging (PCO camera)."""
     log.info("Switching to widefield (LED) mode...")
-    # Slide filter out of light-sheet path
-    core.set_property(FILTER_SLIDER, "Label", "Widefield")
+    # Apply the 'Widefield' camera config preset (sets filter slider, camera, shutter)
+    core.set_config("Camera", "Widefield")
+    # Disable all laser lines
+    core.set_property(PLOGIC, "OutputChannel", "none of outputs 1-7")
     # Emission filters to open/empty positions
     core.set_property(FILTER_WHEEL_CAM1, "Label", BF_FILTER_WHEEL_CAM1)
     core.set_property(FILTER_WHEEL_CAM2, "Label", BF_FILTER_WHEEL_CAM2)
-    # Disable all laser lines
-    core.set_property(PLOGIC, "OutputChannel", "none of outputs 1-7")
-    # Use camera 1 and white LED shutter
-    core.set_camera_device(CAMERA_1)
-    core.set_shutter_device(LED_WHITE)
-    core.set_auto_shutter(True)
-    # Set LED intensity
+    # Set LED intensity and exposure
     core.set_property(LED_WHITE, "LED Intensity(%)", str(BF_LED_INTENSITY))
     core.set_exposure(BF_EXPOSURE_MS)
-    # Binning 2×2 for overview speed
-    core.set_property(CAMERA_1, "Binning", "2x2")
-    core.wait_for_system()
+    time.sleep(15)  # filter slider (mirror) takes ~15s to move
+    for dev in [FILTER_WHEEL_CAM1, FILTER_WHEEL_CAM2]:
+        try:
+            core.wait_for_device(dev)
+        except Exception:
+            pass
     log.info("Widefield mode ready.")
 
 
 def switch_to_lightsheet(core: Core) -> None:
     """Restore hardware to light-sheet mode (LSM will take over from here)."""
     log.info("Switching to light-sheet mode...")
-    core.set_property(FILTER_SLIDER, "Label", "LightSheet")
-    core.set_shutter_device(PLOGIC)
-    core.set_auto_shutter(True)
+    # Apply the 'Multi' camera config preset (sets filter slider to LightSheet, both cameras)
+    core.set_config("Camera", "Multi")
     # Restore binning to 1×1 for OPM
     core.set_property(CAMERA_1, "Binning", "1x1")
     core.set_property(CAMERA_2, "Binning", "1x1")
-    core.wait_for_system()
+    # Reset trigger mode so Live preview works after this call
+    # (LSM will switch to external trigger when it starts an acquisition)
+    core.set_property(CAMERA_1, "TriggerMode", "Internal Trigger")
+    core.set_property(CAMERA_2, "TriggerMode", "Internal Trigger")
+    core.set_property(PLOGIC, "OutputChannel", "output 3 only")
+    time.sleep(15)  # filter slider (mirror) takes ~15s to move
+    for dev in [CAMERA_1, CAMERA_2]:
+        try:
+            core.wait_for_device(dev)
+        except Exception:
+            pass
     log.info("Light-sheet mode ready.")
 
 
@@ -118,37 +130,86 @@ def switch_to_lightsheet(core: Core) -> None:
 # Step 1 — Brightfield tiled overview
 # ---------------------------------------------------------------------------
 
-def _snake_grid(grid: dict) -> list[dict]:
-    """Return XY positions for a snake-scan tile grid."""
-    xs = np.arange(grid["x_start"], grid["x_end"] + grid["step_um"], grid["step_um"])
-    ys = np.arange(grid["y_start"], grid["y_end"] + grid["step_um"], grid["step_um"])
+def _snake_grid(grid: dict, center_x: float = 0.0, center_y: float = 0.0) -> list[dict]:
+    """Return XY positions for a snake-scan tile grid centered on (center_x, center_y).
+    Column indices are always tied to the same physical X position regardless of scan direction."""
+    xs = np.arange(grid["x_start"], grid["x_end"] + grid["step_um"], grid["step_um"]) + center_x
+    ys = np.arange(grid["y_start"], grid["y_end"] + grid["step_um"], grid["step_um"]) + center_y
+    col_indices = list(range(len(xs)))
     events = []
     for row_i, y in enumerate(ys):
-        col_xs = xs if row_i % 2 == 0 else xs[::-1]
-        for col_i, x in enumerate(col_xs):
+        # Snake: alternate physical direction, but col index always maps to xs[col_i]
+        scan_order = col_indices if row_i % 2 == 0 else col_indices[::-1]
+        for col_i in scan_order:
             events.append({
                 "axes": {"row": int(row_i), "col": int(col_i)},
-                "x": float(x),
+                "x": float(xs[col_i]),
                 "y": float(y),
                 "exposure": BF_EXPOSURE_MS,
             })
     return events
 
 
-def acquire_brightfield_overview(core: Core, save_dir: Path) -> None:
-    """Tile-scan the sample in widefield and save the overview."""
+def acquire_brightfield_overview(core: Core, save_dir: Path,
+                                  center_x: float = None, center_y: float = None,
+                                  grid: dict = None) -> list[dict]:
+    """Tile-scan the sample with the Widefield (PCO) camera and save each tile as a TIFF.
+    Grid is centered on (center_x, center_y); defaults to current stage position.
+    Pass a custom grid dict to override the default OVERVIEW_GRID."""
+    import tifffile
+
     switch_to_widefield(core)
+
+    if center_x is None:
+        center_x = core.get_x_position()
+    if center_y is None:
+        center_y = core.get_y_position()
+    log.info(f"Grid center: x={center_x:.1f} um  y={center_y:.1f} um")
 
     overview_dir = save_dir / "brightfield_overview"
     overview_dir.mkdir(parents=True, exist_ok=True)
 
-    events = _snake_grid(OVERVIEW_GRID)
+    active_grid = grid if grid is not None else OVERVIEW_GRID
+    events = _snake_grid(active_grid, center_x=center_x, center_y=center_y)
     log.info(f"Brightfield overview: {len(events)} tiles → {overview_dir}")
 
-    with Acquisition(directory=str(overview_dir), name="overview", show_display=True) as acq:
-        acq.acquire(events)
+    z_focus = core.get_position(Z_STAGE)
 
-    log.info("Overview acquisition complete.")
+    tiles = []
+    for ev in events:
+        core.set_xy_position(ev["x"], ev["y"])
+        core.wait_for_device(XY_STAGE)
+        time.sleep(0.1)
+
+        core.snap_image()
+        tagged = core.get_tagged_image()
+
+        import numpy as np
+        img = np.reshape(tagged.pix, [tagged.tags["Height"], tagged.tags["Width"]])
+
+        fname = overview_dir / f"tile_r{ev['axes']['row']:03d}_c{ev['axes']['col']:03d}.tif"
+        tifffile.imwrite(str(fname), img)
+        tiles.append({**ev, "path": str(fname)})
+        log.info(f"  tile r{ev['axes']['row']} c{ev['axes']['col']}  x={ev['x']:.0f} y={ev['y']:.0f}")
+
+    # Save tile→stage mapping so downstream tools (e.g. napari point picking)
+    # can convert mosaic pixel coordinates back to stage coordinates exactly,
+    # independent of how the mosaic image itself gets stitched/displayed.
+    import json
+    meta = {
+        "pixel_size_um": BF_PIXEL_SIZE_UM,
+        "camera_px": BF_CAMERA_PX,
+        "z_focus_um": z_focus,
+        "tiles": [
+            {"row": t["axes"]["row"], "col": t["axes"]["col"], "x": t["x"], "y": t["y"]}
+            for t in tiles
+        ],
+    }
+    with open(overview_dir / "tile_positions.json", "w") as f:
+        json.dump(meta, f, indent=2)
+
+    log.info(f"Overview complete — {len(tiles)} tiles saved to {overview_dir}")
+    return tiles
 
 
 # ---------------------------------------------------------------------------
