@@ -178,38 +178,6 @@ Each position entry contains `DevicePositions` with `ZStage` (single double) and
 
 ---
 
-### `laser_live_test.ipynb` — Live mode laser diagnostic
-
-Diagnostic notebook for fixing laser triggering in MM Live mode.
-
-**Background:** The LightSheetManager plugin sets Kinetix cameras to `External Trigger` mode. After LSM runs, MM Live mode with Kinetix cameras only flashes the laser once (the PLogic gate receives no more trigger pulses from the camera).
-
-**Root cause:** PLogic gates the laser using camera trigger output pulses. In `External Trigger` mode, the camera waits for an external hardware trigger and doesn't self-generate pulses → no continuous gate signal → laser off. In `Internal Trigger` mode, the camera self-clocks and generates continuous trigger pulses → PLogic → laser stays on during Live.
-
-**Fix (must run before each Live session after LSM use):**
-```python
-core.set_property('Kinetix22-1', 'TriggerMode', 'Internal Trigger')
-core.set_property('Kinetix22-2', 'TriggerMode', 'Internal Trigger')
-core.set_property('PLogic:E:36', 'OutputChannel', 'output 3 only')
-core.set_auto_shutter(False)
-core.snap_image(); _ = core.get_tagged_image()  # prime PLogic latch
-core.set_shutter_open(True)
-```
-
-**Restore after Live (before using LSM):**
-```python
-core.set_shutter_open(False)
-core.set_auto_shutter(True)
-core.set_property('PLogic:E:36', 'OutputChannel', 'none of outputs 1-7')
-```
-
-**Known values:**
-- Working laser channel: `'output 3 only'`
-- Trigger mode string: `'Internal Trigger'` (not `'Internal'`)
-- `get_device_property_names()` returns a Java `StrVector` — must not iterate directly; probe individual property names with `get_property()` / `try-except`
-
----
-
 ## Coordinate system notes
 
 | Axis | Stage direction | Mosaic direction |
@@ -237,10 +205,7 @@ The mosaic coordinate flip is confirmed: `mr = (max_row - r) * h`.
 
 4. Load .pos file into MM Stage Position List
 
-5. laser_live_test.ipynb  (if needed)
-   → run "before Live" cell → check sample in Live mode → run "after Live" cell
-
-6. LightSheetManager → start multi-position OPM acquisition
+5. LightSheetManager → start multi-position OPM acquisition
 ```
 
 ---
@@ -249,8 +214,6 @@ The mosaic coordinate flip is confirmed: `mr = (max_row - r) * h`.
 
 | Issue | Workaround |
 |---|---|
-| MM Live mode laser blinks and goes off | Run "before Live" cell in `laser_live_test.ipynb` before each Live session |
-| LSM requires auto-shutter ON; Live requires it OFF | Run restore cell after Live, fix cell before Live |
 | `get_device_property_names()` returns non-iterable Java StrVector | Use `get_property()` with try/except to probe individual property names |
 | Filter slider takes ~15 s to move | `switch_to_widefield()` / `switch_to_lightsheet()` include `time.sleep(15)` |
 | Old MM VERSION 3 `.pos` format | Use `read_xyz_old()` to read, always write MM2.0 format |

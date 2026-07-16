@@ -24,7 +24,6 @@ All stages are notebook-driven so each step can be reviewed before the next.
 - [The pipeline, step by step](#the-pipeline-step-by-step)
 - [Coordinate conventions](#coordinate-conventions)
 - [Python module reference (`opm_acquisition.py`)](#python-module-reference-opm_acquisitionpy)
-- [Live-mode laser helper](#live-mode-laser-helper)
 - [Position-file formats](#position-file-formats)
 
 ---
@@ -88,7 +87,6 @@ here) in the same directory as `opm_acquisition.py`. It is sourced from the
 | [`brightfield_overview.ipynb`](brightfield_overview.ipynb) | notebook | Acquire a tiled brightfield overview and stitch it into `mosaic.tif`. |
 | [`organoid_picker.ipynb`](organoid_picker.ipynb) | notebook | Detect organoids in the mosaic, review/edit interactively in napari, export a stage position list. |
 | [`microwells.ipynb`](microwells.ipynb) | notebook | Generate a microwell grid from 3 marker wells, and/or merge two position lists. |
-| [`laser_live_test.ipynb`](laser_live_test.ipynb) | notebook | Helper to enable the laser during MicroManager Live preview and restore state for LSM afterwards. |
 | [`lsm_pycromanager.py`](lsm_pycromanager.py) | module | LightSheetManager Python bridge (from the LSM repo). |
 | [`PROJECT_SUMMARY.md`](PROJECT_SUMMARY.md) | doc | Long-form reference with every function and constant documented. |
 
@@ -110,10 +108,7 @@ here) in the same directory as `opm_acquisition.py`. It is sourced from the
 
 4. Load the .pos file into the MicroManager Stage Position List
 
-5. (if needed) laser_live_test.ipynb
-   "Before Live" cell → inspect the sample in Live mode → "After Live" cell
-
-6. LightSheetManager → start a multi-position OPM acquisition
+5. LightSheetManager → start a multi-position OPM acquisition
 ```
 
 ### 1. Brightfield overview — `brightfield_overview.ipynb`
@@ -203,22 +198,6 @@ does not depend on how the mosaic image was stitched or displayed.
 - `BF_LED_INTENSITY = 20`, `BF_EXPOSURE_MS = 20.0` — brightfield exposure
 - `OVERVIEW_GRID` — default tile grid (±660 µm, 330 µm step, ~10% overlap)
 - `LSM_SLICES_PER_VIEW`, `LSM_EXPOSURE_MS` — OPM volume parameters
-
----
-
-## Live-mode laser helper
-
-The LightSheetManager plugin puts the Kinetix cameras into external-trigger mode for
-acquisition. To preview a sample in MicroManager's **Live** mode the cameras must instead
-self-clock so their trigger output continuously gates the laser through PLogic.
-`laser_live_test.ipynb` provides two cells:
-
-- **Before Live** — set the cameras to internal trigger, open the laser channel, disable
-  auto-shutter, and snap once to prime the PLogic latch.
-- **After Live** — restore auto-shutter and gate the laser off so the LSM plugin can take
-  control again.
-
-Run the matching cell whenever you switch between Live preview and LSM acquisition.
 
 ---
 
