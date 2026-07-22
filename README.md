@@ -154,6 +154,7 @@ therefore overridden once LSM starts — configure those through LSM, not around
 | File | Type | Purpose |
 |---|---|---|
 | [`opm_acquisition.py`](opm_acquisition.py) | module | Core pipeline: hardware constants, mode switching, brightfield overview, position-list management, OPM acquisition. Imported by the notebooks. |
+| [`acquire_and_deskew.ipynb`](acquire_and_deskew.ipynb) | notebook | Run a LightSheetManager galvo swept volume (optionally a time series) and deskew each volume on the GPU as it completes. |
 | [`brightfield_overview.ipynb`](brightfield_overview.ipynb) | notebook | Acquire a tiled brightfield overview and stitch it into `mosaic.tif`. |
 | [`organoid_picker.ipynb`](organoid_picker.ipynb) | notebook | Detect organoids in the mosaic, review/edit interactively in napari, export a stage position list. |
 | [`microwells.ipynb`](microwells.ipynb) | notebook | Generate a microwell grid from 3 marker wells, and/or merge two position lists. |
