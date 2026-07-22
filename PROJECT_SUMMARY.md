@@ -56,6 +56,51 @@ matplotlib
 
 Also requires `lsm_pycromanager.py` from the LightSheetManager repo placed in the same directory as `opm_acquisition.py`.
 
+## LightSheetManager plugin
+
+The OPM acquisition is performed by the **LightSheetManager (LSM)** MicroManager plugin;
+this project drives LSM rather than reimplementing light-sheet acquisition. Development was
+done against LSM, so the plugin version is part of the working configuration.
+
+**Verified working stack:**
+
+| Component | Version |
+|---|---|
+| MMCore | 12.5.0 (Device API 75, Module API 10) |
+| LightSheetManager plugin | 0.7.4 |
+| PVCAM device adapter | 1.3.76 |
+| PVCAM runtime (Teledyne SDK) | 3.10.2 |
+| ASI Tiger firmware | TigerComm 3.42, stages 3.41, scanner 3.36, PLogic 3.45 |
+
+**PVCAM adapter caveat:** the adapter bundled with a given MicroManager nightly is not
+always compatible with dual-camera triggered acquisition. Adapter `1.3.76` is verified
+working; some newer adapters fail on the simultaneous two-camera path. Check the
+`PVCAM Adapter Version` camera property first if dual-camera acquisition breaks after an
+update.
+
+**Plugin version management:** LSM jars live in `mmplugins\` inside the MicroManager
+install. Exactly one is active — enabled by the `.jar` extension, disabled by renaming to
+`.jars`. Keeping all released jars in that folder makes it easy to bisect a regression to a
+specific plugin release.
+
+**LSM device mapping** (`LightSheetDeviceManager`):
+
+| LSM role | Device |
+|---|---|
+| `MicroscopeGeometry` | `SCAPE` |
+| `LightSheetType` | `Static` |
+| `ImagingCamera1` / `ImagingCamera2` | `Kinetix22-2` / `Kinetix22-1` |
+| `SimultaneousCameras` | `2` |
+| `TriggerCamera` / `TriggerLaser` | `PLogic:E:36` |
+| `IllumSlice` | `Scanner:AB:33` |
+| `ImagingFocus` | `PiezoStage:P:34` |
+| `SampleXY` / `SampleZ` | `XYStage:XY:31` / `ZStage:Z:32` |
+
+LSM takes over the trigger chain during acquisition: it sets both Kinetix cameras to
+`Edge Trigger` and drives the PLogic `OutputChannel` for the selected channel preset.
+Trigger-mode and laser-channel state set from Python beforehand is overridden once LSM
+starts.
+
 ---
 
 ## Files

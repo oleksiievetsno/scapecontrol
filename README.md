@@ -20,6 +20,7 @@ All stages are notebook-driven so each step can be reviewed before the next.
 
 - [Hardware](#hardware)
 - [Software setup](#software-setup)
+- [LightSheetManager plugin](#lightsheetmanager-plugin)
 - [Repository layout](#repository-layout)
 - [The pipeline, step by step](#the-pipeline-step-by-step)
 - [Coordinate conventions](#coordinate-conventions)
@@ -76,6 +77,75 @@ here) in the same directory as `opm_acquisition.py`. It is sourced from the
 2. In MicroManager, enable the ZMQ server: **Tools ▸ Options ▸ "Run server on port 4827"**
    so pycromanager can connect.
 3. Start Python from an environment that has the dependencies above.
+
+---
+
+## LightSheetManager plugin
+
+The OPM half of this pipeline is built **on top of the
+[LightSheetManager](https://github.com/micro-manager/LightSheetManager) (LSM)
+MicroManager plugin** — LSM owns the volumetric light-sheet acquisition itself
+(galvo scan, slice timing, camera triggering, laser gating). This repository drives
+LSM rather than reimplementing it: `opm_acquisition.py` moves the stage and calls
+LSM through the `lsm_pycromanager.py` bridge.
+
+Because the pipeline was developed against LSM, the plugin version matters.
+
+### Verified working stack
+
+| Component | Version |
+|---|---|
+| MMCore | 12.5.0 (Device API 75, Module API 10) |
+| LightSheetManager plugin | **0.7.4** |
+| PVCAM device adapter | **1.3.76** |
+| PVCAM runtime (Teledyne SDK) | 3.10.2 |
+| ASI Tiger firmware | TigerComm 3.42, stages 3.41, scanner 3.36, PLogic 3.45 |
+
+> **Note on the PVCAM device adapter.** The adapter version that ships with a given
+> MicroManager nightly is *not* always compatible with dual-camera triggered
+> acquisition. Adapter **1.3.76** is the version verified working here. Newer
+> adapters bundled with some nightlies have failed on the simultaneous
+> two-camera path. If dual-camera acquisition misbehaves after a MicroManager
+> update, check the adapter version first — it is reported per camera as the
+> `PVCAM Adapter Version` property.
+
+### Managing plugin versions
+
+LSM plugin jars live in the MicroManager install under `mmplugins\`. Only one may be
+active at a time. The convention used on this system is to keep every released jar in
+that folder and **enable exactly one by its file extension**:
+
+```
+LightSheetManager-0.7.4.jar     <- active (loaded by MicroManager)
+LightSheetManager-0.7.3.jars    <- disabled (trailing "s")
+LightSheetManager-0.6.5.jars    <- disabled
+```
+
+To switch versions, rename the active jar to `.jars` and the desired one to `.jar`,
+then restart MicroManager. Keeping the full history makes it quick to bisect a
+regression back to a specific plugin release.
+
+### LSM device mapping
+
+LSM resolves logical roles to physical devices through the `LightSheetDeviceManager`
+device. The mapping used here:
+
+| LSM role | Device |
+|---|---|
+| `MicroscopeGeometry` | `SCAPE` |
+| `LightSheetType` | `Static` |
+| `ImagingCamera1` | `Kinetix22-2` |
+| `ImagingCamera2` | `Kinetix22-1` |
+| `SimultaneousCameras` | `2` |
+| `TriggerCamera` / `TriggerLaser` | `PLogic:E:36` |
+| `IllumSlice` | `Scanner:AB:33` |
+| `ImagingFocus` | `PiezoStage:P:34` |
+| `SampleXY` / `SampleZ` | `XYStage:XY:31` / `ZStage:Z:32` |
+
+During an acquisition LSM takes over the trigger chain itself: it switches both Kinetix
+cameras to `Edge Trigger` and sets the PLogic `OutputChannel` to match the selected
+channel preset. Any trigger-mode or laser-channel state set beforehand from Python is
+therefore overridden once LSM starts — configure those through LSM, not around it.
 
 ---
 
